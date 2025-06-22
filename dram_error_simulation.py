@@ -110,6 +110,9 @@ def dram_bitflip(
     if x.dtype != torch.float16:
         raise TypeError("Input must be float16")
 
+    if x.numel() % 64 != 0:
+        raise ValueError("x must have a number of elements divisible by 64")
+
     # Handle p validation and conversion
     if isinstance(p, (int, float)):
         if not 0.0 <= p <= 1.0:
