@@ -30,15 +30,16 @@ python eval_llm_with_dram_error.py \
 - `--save_results`: Save evaluation results to JSON file
 - `--output_dir`: Directory to save results (default: "./results")
 - `--apply_monkey_patch`: Enable DRAM error simulation
-- `--dram_error_prob`: DRAM error probability per bit (default: 1e-5)
+- `--dram_error_prob`: DRAM error probability per bit (default: 1e-6)
 - `--dram_error_prob_file`: Path to tensor file (.pt/.pth) containing per-layer error probabilities
+- `--protect_sign_and_exponent`: Protect sign and exponent bits from DRAM errors (mantissa only)
 
 ### Examples
 
 #### 1. Basic evaluation without DRAM errors:
 ```bash
 python eval_llm_with_dram_error.py \
-    --model_name_or_path microsoft/DialoGPT-medium \
+    --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
     --tasks arc_easy,hellaswag \
     --batch_size 16 \
     --verbose \
@@ -48,7 +49,7 @@ python eval_llm_with_dram_error.py \
 #### 2. Evaluation with uniform DRAM error simulation:
 ```bash
 python eval_llm_with_dram_error.py \
-    --model_name_or_path microsoft/DialoGPT-medium \
+    --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
     --tasks arc_easy,hellaswag \
     --apply_monkey_patch \
     --dram_error_prob 1e-4 \
@@ -58,10 +59,21 @@ python eval_llm_with_dram_error.py \
 #### 3. Evaluation with custom error probability tensor:
 ```bash
 python eval_llm_with_dram_error.py \
-    --model_name_or_path microsoft/DialoGPT-medium \
+    --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
     --tasks arc_easy,hellaswag \
     --apply_monkey_patch \
     --dram_error_prob_file ./error_probs.pt \
+    --save_results
+```
+
+#### 4. Evaluation with protected sign and exponent bits:
+```bash
+python eval_llm_with_dram_error.py \
+    --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
+    --tasks arc_easy,hellaswag \
+    --apply_monkey_patch \
+    --dram_error_prob 1e-4 \
+    --protect_sign_and_exponent \
     --save_results
 ```
 
@@ -88,4 +100,5 @@ When `--apply_monkey_patch` is enabled, the script:
 2. Simulates bit-flip errors during matrix multiplication
 3. Supports both uniform error rates and per-layer custom error probability tensors
 4. Error probability tensors must have shape `(1024,)` with values in range `[0, 1]`
+5. Optionally protects sign and exponent bits from errors (using `--protect_sign_and_exponent`)
 

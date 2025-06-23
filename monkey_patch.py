@@ -4,7 +4,7 @@ import types
 from typing import Optional, List, Union
 from dram_error_simulation import dram_bitflip
 
-def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tensor]) -> torch.Tensor:
+def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tensor], protect_sign_and_exponent: bool = False) -> torch.Tensor:
     """
     Apply DRAM bit-flip errors to a tensor, handling dtype conversion as needed.
     """
@@ -25,7 +25,8 @@ def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tens
     corrupted_tensor, _ = dram_bitflip(
         tensor_f16, 
         error_prob, 
-        inplace=False
+        inplace=False,
+        protect_sign_and_exponent=protect_sign_and_exponent
     )
     
     # Convert back to original dtype if necessary
@@ -37,7 +38,8 @@ def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tens
 def create_dram_error_forward(
     original_forward,
     error_prob: Union[float, torch.Tensor] = 1e-6,
-    module_name: str = "Linear"
+    module_name: str = "Linear",
+    protect_sign_and_exponent: bool = False
 ):
     """
     Create a new forward function that applies DRAM errors before calling the linear operation.
@@ -45,17 +47,17 @@ def create_dram_error_forward(
     def forward_with_dram_errors(self, input: torch.Tensor) -> torch.Tensor:
         import torch.nn.functional as F
         # Apply DRAM errors to input activations
-        corrupted_input = _apply_dram_errors(input, error_prob)
+        corrupted_input = _apply_dram_errors(input, error_prob, protect_sign_and_exponent)
         
-        # Apply DRAM errors to weights
+        # # Apply DRAM errors to weights
         corrupted_weight = None
         if hasattr(self, 'weight') and self.weight is not None:
-            corrupted_weight = _apply_dram_errors(self.weight, error_prob)
+            corrupted_weight = _apply_dram_errors(self.weight, error_prob, protect_sign_and_exponent)
         
-        # Apply DRAM errors to bias if present
+        # # Apply DRAM errors to bias if present
         corrupted_bias = None
         if hasattr(self, 'bias') and self.bias is not None:
-            corrupted_bias = _apply_dram_errors(self.bias, error_prob)
+            corrupted_bias = _apply_dram_errors(self.bias, error_prob, protect_sign_and_exponent)
         
         # Call F.linear directly with corrupted tensors
         return F.linear(corrupted_input, corrupted_weight, corrupted_bias)
@@ -65,7 +67,8 @@ def create_dram_error_forward(
 def patch_linear_module(
     module: nn.Linear,
     error_prob: Union[float, torch.Tensor] = 1e-6,
-    module_name: str = None
+    module_name: str = None,
+    protect_sign_and_exponent: bool = False
 ) -> nn.Linear:
     """
     Patch a single nn.Linear module to inject DRAM errors.
@@ -81,6 +84,8 @@ def patch_linear_module(
           within the 1024-bit DRAM burst, with all elements in [0, 1]
     module_name : str, optional
         Name for debugging/logging purposes
+    protect_sign_and_exponent : bool, default False
+        Whether to protect the sign and exponent bits from DRAM errors
         
     Returns
     -------
@@ -111,14 +116,16 @@ def patch_linear_module(
     module._original_forward = module.forward
     module._dram_error_config = {
         'error_prob': error_prob,
-        'module_name': module_name or f"Linear_{id(module)}"
+        'module_name': module_name or f"Linear_{id(module)}",
+        'protect_sign_and_exponent': protect_sign_and_exponent
     }
     
     # Replace forward method using types.MethodType
     new_forward = create_dram_error_forward(
         module._original_forward,
         error_prob,
-        module_name or "Linear"
+        module_name or "Linear",
+        protect_sign_and_exponent
     )
     module.forward = types.MethodType(new_forward, module)
     
@@ -127,13 +134,15 @@ def patch_linear_module(
         print(f"  - Error prob: tensor of shape {error_prob.shape} (min: {error_prob.min():.2e}, max: {error_prob.max():.2e})")
     else:
         print(f"  - Error prob: {error_prob}")
+    print(f"  - Protect sign/exponent: {protect_sign_and_exponent}")
     
     return module
 
 def patch_model_linear_layers(
     model: nn.Module,
     error_prob: Union[float, torch.Tensor] = 1e-6,
-    layer_filter: Optional[callable] = None
+    layer_filter: Optional[callable] = None,
+    protect_sign_and_exponent: bool = False
 ) -> List[nn.Linear]:
     """
     Patch all Linear layers in a model.
@@ -149,6 +158,8 @@ def patch_model_linear_layers(
           within the 1024-bit DRAM burst, with all elements in [0, 1]
     layer_filter : callable, optional
         Function to filter which layers to patch. Should take (name, module) and return bool
+    protect_sign_and_exponent : bool, default False
+        Whether to protect the sign and exponent bits from DRAM errors
         
     Returns
     -------
@@ -166,7 +177,8 @@ def patch_model_linear_layers(
             patch_linear_module(
                 module,
                 error_prob,
-                name
+                name,
+                protect_sign_and_exponent
             )
             patched_modules.append(module)
     

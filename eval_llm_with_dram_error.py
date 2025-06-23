@@ -95,14 +95,19 @@ if __name__ == '__main__':
     parser.add_argument(
         "--dram_error_prob",
         type=float,
-        default=1e-5,
-        help="DRAM error probability per bit (default: 1e-3)."
+        default=1e-6,
+        help="DRAM error probability per bit (default: 1e-6)."
     )
     parser.add_argument(
         "--dram_error_prob_file",
         type=str,
         default=None,
         help="Path to file containing DRAM error probability tensor (.pt or .pth file). If provided, this overrides --dram_error_prob."
+    )
+    parser.add_argument(
+        "--protect_sign_and_exponent",
+        action="store_true",
+        help="Whether to protect the sign and exponent bits from DRAM errors."
     )
     
     args = parser.parse_args()
@@ -158,7 +163,8 @@ if __name__ == '__main__':
         patched_layers = patch_model_linear_layers(
             model,
             error_prob=error_prob,
-            layer_filter=layer_filter
+            layer_filter=layer_filter,
+            protect_sign_and_exponent=args.protect_sign_and_exponent
         )
         logging.info(f"Successfully patched {len(patched_layers)} linear layers")
     else:

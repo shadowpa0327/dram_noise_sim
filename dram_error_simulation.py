@@ -81,6 +81,7 @@ def dram_bitflip(
     *,
     generator: Optional[torch.Generator] = None,
     inplace: bool = False,
+    protect_sign_and_exponent: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Inject independent bit‑flip noise into a (d_in, d_out) float16 tensor,
@@ -155,7 +156,11 @@ def dram_bitflip(
         # p_tensor has shape (1024,), rand_uniform has shape (N, 1024)
         rand_bits = rand_uniform < p_tensor.unsqueeze(0)  # p_tensor becomes (1, 1024)
     
-    rand_bits = rand_bits.view(N, 64, 16)
+    rand_bits = rand_bits.view(N, 64, 16) 
+    # Force first 6 bits to be error-free by setting them to False
+    # NOTE(brian1009): The rand_bits is in reverse order. 
+    if protect_sign_and_exponent:
+        rand_bits[:, :, -6:] = False
     # Bit‑position indices 0…15 → shift amounts
     bit_shifts = torch.arange(16, device=x.device, dtype=torch.int16)\
                   .view(1, 1, 16)
@@ -176,6 +181,7 @@ def dram_bitflip_triton(
     *,
     generator: Optional[torch.Generator] = None,
     inplace: bool = False,
+    protect_sign_and_exponent: bool = False,
 ) -> torch.Tensor:
     """
     Triton-accelerated version of dram_bitflip that uses the pack_and_xor_triton kernel
@@ -228,6 +234,13 @@ def dram_bitflip_triton(
     
     # Reshape for Triton kernel: (N, 64*16) -> (N*64, 16)
     # Each "word" (int16) gets 16 bits
+    rand_bits = rand_bits.view(N, 64, 16)
+    
+    # Force first 6 bits to be error-free by setting them to False
+    # NOTE(brian1009): The rand_bits is in reverse order. 
+    if protect_sign_and_exponent:
+        rand_bits[:, :, -6:] = False
+    
     rand_bits_triton = rand_bits.view(-1, 16).to(torch.uint8)  # (N*64, 16) as uint8
     
     # Flatten x_int to (N*64,) for Triton kernel
