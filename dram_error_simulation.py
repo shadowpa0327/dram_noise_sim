@@ -138,40 +138,65 @@ def dram_bitflip(
         x_int = x_int.clone()                             # preserve the original
 
     # ------------------------------------------------------------------
-    # 1. Build a random 16‑bit mask whose bits are 1 with probability p
+    # HIGH-LEVEL LOGIC OVERVIEW:
+    # 1. Reshape data into 1024-bit DRAM bursts (64 float16 words per burst)
+    # 2. For each burst, generate random bit-flip mask based on probability p
+    # 3. Apply bit-flips using XOR operation
+    # 4. Return corrupted data with same shape as input
     # ------------------------------------------------------------------
-    # We create a (N_bursts, 16, 16) Boolean tensor: last dim indexes bit‑positions
-    # Then pack those Booleans into int16 with a single fused reduction.
+    
+    # ------------------------------------------------------------------
+    # 1. Generate random bit-flip decisions for each bit position
+    # ------------------------------------------------------------------
+    # Strategy: Generate uniform random [0,1] values, then compare with p
+    # This gives us Boolean decisions for whether each bit should flip
     N, W = x_int.shape
     assert W == 64, "W must be 64"
     
-    # Draw all Bernoulli(p) trials in one go (keeps GPU well‑utilized)
+    # Generate random values for all bit positions across all bursts
+    # Shape: (N_bursts, 64_words * 16_bits_per_word) = (N, 1024)
     rand_uniform = torch.rand((N, 64*16), device=x.device, generator=generator)
     
     if p_tensor is None:
-        # Scalar p case (original behavior)
+        # Uniform probability: same p for all bit positions
         rand_bits = rand_uniform < p
     else:
-        # Vector p case: broadcast p_tensor across N bursts
-        # p_tensor has shape (1024,), rand_uniform has shape (N, 1024)
-        rand_bits = rand_uniform < p_tensor.unsqueeze(0)  # p_tensor becomes (1, 1024)
+        # Per-bit probabilities: p_tensor[i] for bit position i within 1024-bit burst
+        # Broadcast p_tensor (1024,) across N bursts -> (N, 1024)
+        rand_bits = rand_uniform < p_tensor.unsqueeze(0)
     
+    # ------------------------------------------------------------------
+    # 2. Build bit-flip masks for each 16-bit word
+    # ------------------------------------------------------------------
+    # Reshape: (N, 1024) -> (N, 64_words, 16_bits_per_word)
     rand_bits = rand_bits.view(N, 64, 16) 
-    # Force first 6 bits to be error-free by setting them to False
-    # NOTE(brian1009): The rand_bits is in reverse order. 
+    
+    # Optional protection: Don't flip sign and exponent bits (top 6 bits of float16)
+    # NOTE: rand_bits is in reverse bit order, so -6: means bits [15,14,13,12,11,10]
     if protect_sign_and_exponent:
         rand_bits[:, :, -6:] = False
-    # Bit‑position indices 0…15 → shift amounts
+    
+    # Convert Boolean decisions to actual bit masks:
+    # For each word, pack 16 Boolean values into a single int16 mask
+    # rand_bits[i,j,k] -> bit k of word j in burst i
+    # bit_shifts = [2^0, 2^1, 2^2, ..., 2^15] to create positional bit values
     bit_shifts = torch.arange(16, device=x.device, dtype=torch.int16)\
                   .view(1, 1, 16)
+    # Sum across bit positions: each True bit contributes 2^position to the mask
     dmg_mask = (rand_bits.to(torch.int16) << bit_shifts).sum(dim=2).to(torch.int16)
 
     # ------------------------------------------------------------------
-    # 2. Flip the selected bits with XOR
+    # 3. Apply bit-flips using XOR operation
     # ------------------------------------------------------------------
+    # XOR each word with its corresponding damage mask:
+    # - Bits set to 1 in dmg_mask will be flipped in x_int
+    # - Bits set to 0 in dmg_mask remain unchanged in x_int
+    # This simulates the effect of DRAM bit-flip errors
     x_int ^= dmg_mask                                     # in‑place within the view
 
-    # Return with original shape & dtype
+    # ------------------------------------------------------------------
+    # 4. Return results with original tensor shape and dtype
+    # ------------------------------------------------------------------
     return x_int.view(torch.float16).view_as(x), dmg_mask
 
 
