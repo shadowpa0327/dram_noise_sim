@@ -1,5 +1,15 @@
 # DRAM Error Simulation
 
+## Cloning Repo
+```
+git clone --recurse-submodules https://github.com/shadowpa0327/dram_noise_sim.git
+```
+
+If you forgot to clone the submodule, you can initialize and update it with:
+```bash
+git submodule update --init --recursive
+```
+
 ## Build Environments
 ```bash
 conda create -n dram_error python=3.11
