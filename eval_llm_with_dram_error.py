@@ -188,6 +188,10 @@ if __name__ == '__main__':
                 suffix = f"_dram_error_tensor_{file_basename}"
             else:
                 suffix = f"_dram_error_{args.dram_error_prob}"
+            
+            # Add hint if sign and exponent bits are protected
+            if args.protect_sign_and_exponent:
+                suffix += "_protected_se"
         
         output_file = os.path.join(args.output_dir, f"{model_name}{suffix}.json")
         with open(output_file, "w") as f:

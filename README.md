@@ -92,6 +92,7 @@ Results are displayed in a formatted table and optionally saved as JSON files in
 - Without DRAM errors: `{model_name}.json`
 - With uniform DRAM errors: `{model_name}_dram_error_{probability}.json`
 - With tensor DRAM errors: `{model_name}_dram_error_tensor_{filename}.json`
+- With protected sign/exponent: `{model_name}_dram_error_{probability}_protected_se.json`
 
 ### DRAM Error Simulation
 
