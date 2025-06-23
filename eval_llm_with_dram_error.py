@@ -183,7 +183,6 @@ if __name__ == '__main__':
     # Print DRAM error statistics if monkey patching was applied
     if args.apply_monkey_patch:
         stats = get_dram_stats()
-        breakpoint()
         if stats:
             logging.info("=== DRAM Error Statistics ===")
             total_bits_flipped = 0
@@ -205,7 +204,7 @@ if __name__ == '__main__':
                     logging.info(f"  - Per-bit position flips:")
                     for i, count in enumerate(bit_pos_flips):
                         if count > 0:
-                            logging.info(f"    Bit {i:2d}: {count:,} flips")
+                            logging.info(f"    Bit {i:2d}: {count:,} flips ({count/data['total_bits_flipped']*100:.2f}%)")
                 
                 total_bits_flipped += data['total_bits_flipped']
                 total_calls += data['calls']
