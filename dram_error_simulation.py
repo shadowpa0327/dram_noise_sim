@@ -2,6 +2,42 @@ import torch
 import triton
 import triton.language as tl
 from typing import Optional
+from collections import defaultdict
+import threading
+
+# Global statistics tracking for DRAM bit flips
+_dram_stats_lock = threading.Lock()
+_dram_stats = defaultdict(lambda: {
+    'total_bits_flipped': 0,
+    'total_tensors_processed': 0,
+    'total_elements_processed': 0,
+    'calls': 0,
+    'bit_position_flips': [0] * 16  # Track flips per bit position (0-15)
+})
+
+def get_dram_stats():
+    """Get current DRAM error statistics."""
+    with _dram_stats_lock:
+        return dict(_dram_stats)
+
+def reset_dram_stats():
+    """Reset DRAM error statistics."""
+    with _dram_stats_lock:
+        _dram_stats.clear()
+
+def _update_dram_stats(context_name: str, bits_flipped: int, tensor_count: int, element_count: int, bit_position_flips: list = None):
+    """Update DRAM statistics for a given context."""
+    with _dram_stats_lock:
+        stats = _dram_stats[context_name]
+        stats['total_bits_flipped'] += bits_flipped
+        stats['total_tensors_processed'] += tensor_count
+        stats['total_elements_processed'] += element_count
+        stats['calls'] += 1
+        
+        # Update per-bit-position statistics
+        if bit_position_flips is not None:
+            for i, count in enumerate(bit_position_flips):
+                stats['bit_position_flips'][i] += count
 
 
 ################################################################################
@@ -82,7 +118,7 @@ def dram_bitflip(
     generator: Optional[torch.Generator] = None,
     inplace: bool = False,
     protect_sign_and_exponent: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, int, list]:
     """
     Inject independent bit‑flip noise into a (d_in, d_out) float16 tensor,
     assuming a DRAM burst size of 1024 bits (=16 × float16 words).
@@ -100,13 +136,17 @@ def dram_bitflip(
         For deterministic sampling (e.g. torch.Generator(device='cuda').manual_seed(0)).
     inplace : bool, default False
         If True, corrupt `x` in place; otherwise a new tensor is returned.
+    protect_sign_and_exponent : bool, default False
+        If True, protect sign and exponent bits (positions 10-15) from bit flips.
 
     Returns
     -------
-    tuple[torch.Tensor, torch.Tensor]
-        Tuple of (corrupted_tensor, damage_mask) where corrupted_tensor has the same 
-        shape & dtype as input but with randomly flipped bits, and damage_mask shows
-        which bits were flipped.
+    tuple[torch.Tensor, torch.Tensor, int, list]
+        Tuple of (corrupted_tensor, damage_mask, bits_flipped, bit_position_flips) where:
+        - corrupted_tensor has the same shape & dtype as input but with randomly flipped bits
+        - damage_mask shows which bits were flipped
+        - bits_flipped is the total count of bits that were flipped
+        - bit_position_flips is a list of 16 integers counting flips per bit position (0-15)
     """
     if x.dtype != torch.float16:
         raise TypeError("Input must be float16")
@@ -197,7 +237,14 @@ def dram_bitflip(
     # ------------------------------------------------------------------
     # 4. Return results with original tensor shape and dtype
     # ------------------------------------------------------------------
-    return x_int.view(torch.float16).view_as(x), dmg_mask
+    # Count total number of bits flipped for statistics
+    bits_flipped = rand_bits.sum().item()
+    
+    # Count bit flips by position (0-15) for detailed statistics
+    # rand_bits shape: (N, 64, 16), sum over first two dimensions to get per-bit-position counts
+    bit_position_flips = rand_bits.sum(dim=(0, 1)).cpu().tolist()  # List of 16 integers
+    
+    return x_int.view(torch.float16).view_as(x), dmg_mask, bits_flipped, bit_position_flips
 
 
 def dram_bitflip_triton(
@@ -207,12 +254,12 @@ def dram_bitflip_triton(
     generator: Optional[torch.Generator] = None,
     inplace: bool = False,
     protect_sign_and_exponent: bool = False,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, int, list]:
     """
     Triton-accelerated version of dram_bitflip that uses the pack_and_xor_triton kernel
     for faster bit packing and XOR operations.
     
-    Parameters are the same as dram_bitflip(), but returns only the corrupted tensor.
+    Parameters are the same as dram_bitflip(), but returns (corrupted_tensor, bits_flipped, bit_position_flips).
     """
     if x.dtype != torch.float16:
         raise TypeError("Input must be float16")
@@ -279,5 +326,12 @@ def dram_bitflip_triton(
     # The Triton kernel modifies x_int_flat in-place, and since it's a view
     # of x_int, the changes are reflected in the original tensor structure
 
+    # Count total number of bits flipped for statistics
+    bits_flipped = rand_bits.sum().item()
+    
+    # Count bit flips by position (0-15) for detailed statistics
+    # rand_bits shape: (N, 64, 16), sum over first two dimensions to get per-bit-position counts
+    bit_position_flips = rand_bits.sum(dim=(0, 1)).cpu().tolist()  # List of 16 integers
+
     # Return with original shape & dtype
-    return x_int.view(torch.float16).view_as(x) 
+    return x_int.view(torch.float16).view_as(x), bits_flipped, bit_position_flips 

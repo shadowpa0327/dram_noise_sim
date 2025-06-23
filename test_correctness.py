@@ -162,11 +162,15 @@ def test_dram_bitflip_correctness():
         # Test with same random seed
         torch.manual_seed(42)
         x_pytorch = x_original.clone()
-        y_pytorch, dmg_mask = dram_bitflip(x_pytorch, p)
+        y_pytorch, dmg_mask, bits_flipped, bit_pos_flips = dram_bitflip(x_pytorch, p)
+        print(f"  Bits flipped (PyTorch): {bits_flipped}")
+        print(f"  Bit position flips (PyTorch): {bit_pos_flips}")
         
         torch.manual_seed(42)
         x_triton = x_original.clone()
-        y_triton = dram_bitflip_triton(x_triton, p)
+        y_triton, bits_flipped_triton, bit_pos_flips_triton = dram_bitflip_triton(x_triton, p)
+        print(f"  Bits flipped (Triton): {bits_flipped_triton}")
+        print(f"  Bit position flips (Triton): {bit_pos_flips_triton}")
         
         # Compare results
         results_match = torch.allclose(y_pytorch, y_triton, rtol=1e-3, atol=1e-6)

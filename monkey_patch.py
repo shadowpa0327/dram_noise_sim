@@ -2,9 +2,15 @@ import torch
 import torch.nn as nn
 import types
 from typing import Optional, List, Union
-from dram_error_simulation import dram_bitflip
+from dram_error_simulation import dram_bitflip, _update_dram_stats
 
-def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tensor], protect_sign_and_exponent: bool = False) -> torch.Tensor:
+def _apply_dram_errors(
+        tensor: torch.Tensor, 
+        error_prob: Union[float, torch.Tensor], 
+        protect_sign_and_exponent: bool = False, 
+        context: str = "unknown",
+        log_stats: bool = True
+    ) -> torch.Tensor:
     """
     Apply DRAM bit-flip errors to a tensor, handling dtype conversion as needed.
     """
@@ -22,12 +28,16 @@ def _apply_dram_errors(tensor: torch.Tensor, error_prob: Union[float, torch.Tens
         tensor_f16 = tensor
     
     # Apply DRAM bit-flip errors (will raise error if numel() % 64 != 0)
-    corrupted_tensor, _ = dram_bitflip(
+    corrupted_tensor, dmg_mask, bits_flipped, bit_pos_flips = dram_bitflip(
         tensor_f16, 
         error_prob, 
         inplace=False,
         protect_sign_and_exponent=protect_sign_and_exponent
     )
+    
+    # Log statistics
+    if log_stats:
+        _update_dram_stats(context, bits_flipped, 1, tensor.numel(), bit_pos_flips)
     
     # Convert back to original dtype if necessary
     if original_dtype != torch.float16:
@@ -39,7 +49,8 @@ def create_dram_error_forward(
     original_forward,
     error_prob: Union[float, torch.Tensor] = 1e-6,
     module_name: str = "Linear",
-    protect_sign_and_exponent: bool = False
+    protect_sign_and_exponent: bool = False,
+    log_stats: bool = True
 ):
     """
     Create a new forward function that applies DRAM errors before calling the linear operation.
@@ -47,17 +58,17 @@ def create_dram_error_forward(
     def forward_with_dram_errors(self, input: torch.Tensor) -> torch.Tensor:
         import torch.nn.functional as F
         # Apply DRAM errors to input activations
-        corrupted_input = _apply_dram_errors(input, error_prob, protect_sign_and_exponent)
+        corrupted_input = _apply_dram_errors(input, error_prob, protect_sign_and_exponent, f"{module_name}_input", log_stats)
         
         # # Apply DRAM errors to weights
         corrupted_weight = None
         if hasattr(self, 'weight') and self.weight is not None:
-            corrupted_weight = _apply_dram_errors(self.weight, error_prob, protect_sign_and_exponent)
+            corrupted_weight = _apply_dram_errors(self.weight, error_prob, protect_sign_and_exponent, f"{module_name}_weight", log_stats)
         
         # # Apply DRAM errors to bias if present
         corrupted_bias = None
         if hasattr(self, 'bias') and self.bias is not None:
-            corrupted_bias = _apply_dram_errors(self.bias, error_prob, protect_sign_and_exponent)
+            corrupted_bias = _apply_dram_errors(self.bias, error_prob, protect_sign_and_exponent, f"{module_name}_bias", log_stats)
         
         # Call F.linear directly with corrupted tensors
         return F.linear(corrupted_input, corrupted_weight, corrupted_bias)
@@ -68,7 +79,8 @@ def patch_linear_module(
     module: nn.Linear,
     error_prob: Union[float, torch.Tensor] = 1e-6,
     module_name: str = None,
-    protect_sign_and_exponent: bool = False
+    protect_sign_and_exponent: bool = False,
+    log_stats: bool = True
 ) -> nn.Linear:
     """
     Patch a single nn.Linear module to inject DRAM errors.
@@ -125,7 +137,8 @@ def patch_linear_module(
         module._original_forward,
         error_prob,
         module_name or "Linear",
-        protect_sign_and_exponent
+        protect_sign_and_exponent,
+        log_stats
     )
     module.forward = types.MethodType(new_forward, module)
     
@@ -142,7 +155,8 @@ def patch_model_linear_layers(
     model: nn.Module,
     error_prob: Union[float, torch.Tensor] = 1e-6,
     layer_filter: Optional[callable] = None,
-    protect_sign_and_exponent: bool = False
+    protect_sign_and_exponent: bool = False,
+    log_stats: bool = True
 ) -> List[nn.Linear]:
     """
     Patch all Linear layers in a model.
@@ -178,7 +192,8 @@ def patch_model_linear_layers(
                 module,
                 error_prob,
                 name,
-                protect_sign_and_exponent
+                protect_sign_and_exponent,
+                log_stats
             )
             patched_modules.append(module)
     

@@ -25,7 +25,9 @@ def simple_demo():
     
     # Test with scalar probability
     print("\n1. Testing with scalar probability (p=0.1):")
-    y_pytorch, dmg_mask = dram_bitflip(x.clone(), p=0.1)
+    y_pytorch, dmg_mask, bits_flipped, bit_pos_flips = dram_bitflip(x.clone(), p=0.1)
+    print(f"   Bits flipped: {bits_flipped}")
+    print(f"   Bit position flips: {bit_pos_flips}")
     
     pytorch_changes = (x_original != y_pytorch).sum().item()
     
@@ -37,7 +39,9 @@ def simple_demo():
     p_vector = torch.full((1024,), 0.001, device="cuda")
     p_vector[::100] = 0.05  # Higher probability every 100th bit
     
-    y_pytorch_vec, _ = dram_bitflip(x.clone(), p=p_vector)
+    y_pytorch_vec, _, bits_flipped_vec, bit_pos_flips_vec = dram_bitflip(x.clone(), p=p_vector)
+    print(f"   Bits flipped (vector): {bits_flipped_vec}")
+    print(f"   Bit position flips (vector): {bit_pos_flips_vec}")
     
     pytorch_vec_changes = (x_original != y_pytorch_vec).sum().item()
     

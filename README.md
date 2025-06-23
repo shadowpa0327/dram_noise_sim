@@ -24,9 +24,9 @@ python eval_llm_with_dram_error.py \
 ### Parameters
 
 - `--model_name_or_path`: Path to the model checkpoint or Hugging Face model name
-- `--tasks`: Comma-separated list of evaluation tasks (e.g., "arc_easy,hellaswag")
+- `--tasks`: Comma-separated list of evaluation tasks (e.g., "arc_easy")
 - `--batch_size`: Batch size for evaluation (default: 8)
-- `--verbose`: Enable verbose logging output
+- `--verbose`: Enable verbose statistic. With this the scripts will dump the statistic number of bit flip (default: False)
 - `--save_results`: Save evaluation results to JSON file
 - `--output_dir`: Directory to save results (default: "./results")
 - `--apply_monkey_patch`: Enable DRAM error simulation
@@ -40,7 +40,7 @@ python eval_llm_with_dram_error.py \
 ```bash
 python eval_llm_with_dram_error.py \
     --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
-    --tasks arc_easy,hellaswag \
+    --tasks arc_easy \
     --batch_size 16 \
     --verbose \
     --save_results
@@ -50,7 +50,7 @@ python eval_llm_with_dram_error.py \
 ```bash
 python eval_llm_with_dram_error.py \
     --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
-    --tasks arc_easy,hellaswag \
+    --tasks arc_easy \
     --apply_monkey_patch \
     --dram_error_prob 1e-4 \
     --save_results
@@ -60,7 +60,7 @@ python eval_llm_with_dram_error.py \
 ```bash
 python eval_llm_with_dram_error.py \
     --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
-    --tasks arc_easy,hellaswag \
+    --tasks arc_easy \
     --apply_monkey_patch \
     --dram_error_prob_file ./error_probs.pt \
     --save_results
@@ -70,11 +70,23 @@ python eval_llm_with_dram_error.py \
 ```bash
 python eval_llm_with_dram_error.py \
     --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
-    --tasks arc_easy,hellaswag \
+    --tasks arc_easy \
     --apply_monkey_patch \
     --dram_error_prob 1e-4 \
     --protect_sign_and_exponent \
     --save_results
+```
+
+#### 5. Evalaution and Dump the Statistic of Bit Flips
+```
+python eval_llm_with_dram_error.py \
+    --model_name_or_path meta-llama/Llama-3.2-3B-Instruct \
+    --tasks arc_easy \
+    --apply_monkey_patch \
+    --dram_error_prob 1e-4 \
+    --protect_sign_and_exponent \
+    --save_results \
+    --verbose
 ```
 
 ### Supported Tasks

@@ -10,6 +10,7 @@ import json
 import logging
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from monkey_patch import patch_model_linear_layers
+from dram_error_simulation import get_dram_stats, reset_dram_stats
 
 
 def load_model_and_tokenizer(model_name_or_path):
@@ -45,7 +46,7 @@ def run_lm_eval_zero_shot(model, tokenizer, batch_size=64, task_list=["arc_easy"
             tasks=task_list,
             task_manager=task_manager,
             log_samples=False,
-            limit=limit
+            limit=limit,
         ) 
 
     res = make_table(results)
@@ -74,7 +75,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="Whether to print verbose information or not."
+        help="Whether to print detailed information or not."
     )
     parser.add_argument(
         "--save_results",
@@ -113,7 +114,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # Setup logging
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
+    #logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING)
+    logging.basicConfig(level=logging.INFO)
     
     logging.info("Loading model and tokenizer...")
     model, tokenizer = load_model_and_tokenizer(args.model_name_or_path)
@@ -164,14 +166,73 @@ if __name__ == '__main__':
             model,
             error_prob=error_prob,
             layer_filter=layer_filter,
-            protect_sign_and_exponent=args.protect_sign_and_exponent
+            protect_sign_and_exponent=args.protect_sign_and_exponent,
+            log_stats=args.verbose
         )
         logging.info(f"Successfully patched {len(patched_layers)} linear layers")
+        
+        # Reset DRAM statistics before evaluation
+        reset_dram_stats()
+        logging.info("Reset DRAM error statistics")
     else:
         logging.info("Skipping monkey patching (not requested)")
     
     logging.info("Start running lm_eval zero-shot evaluation...")
     res = run_lm_eval_zero_shot(model, tokenizer, args.batch_size, task_list=args.tasks)
+    
+    # Print DRAM error statistics if monkey patching was applied
+    if args.apply_monkey_patch:
+        stats = get_dram_stats()
+        breakpoint()
+        if stats:
+            logging.info("=== DRAM Error Statistics ===")
+            total_bits_flipped = 0
+            total_calls = 0
+            total_bit_position_flips = [0] * 16
+            for context, data in stats.items():
+                logging.info(f"{context}:")
+                logging.info(f"  - Bits flipped: {data['total_bits_flipped']:,}")
+                logging.info(f"  - Tensors processed: {data['total_tensors_processed']:,}")
+                logging.info(f"  - Elements processed: {data['total_elements_processed']:,}")
+                logging.info(f"  - Function calls: {data['calls']:,}")
+                if data['total_elements_processed'] > 0:
+                    flip_rate = data['total_bits_flipped'] / (data['total_elements_processed'] * 16)  # 16 bits per float16
+                    logging.info(f"  - Bit flip rate: {flip_rate:.2e}")
+                
+                # Show per-bit-position statistics
+                bit_pos_flips = data.get('bit_position_flips', [0] * 16)
+                if sum(bit_pos_flips) > 0:
+                    logging.info(f"  - Per-bit position flips:")
+                    for i, count in enumerate(bit_pos_flips):
+                        if count > 0:
+                            logging.info(f"    Bit {i:2d}: {count:,} flips")
+                
+                total_bits_flipped += data['total_bits_flipped']
+                total_calls += data['calls']
+                # Accumulate bit position flips
+                for i, count in enumerate(bit_pos_flips):
+                    total_bit_position_flips[i] += count
+            
+            logging.info(f"TOTAL: {total_bits_flipped:,} bits flipped across {total_calls:,} function calls")
+            
+            # Show overall bit position statistics
+            if sum(total_bit_position_flips) > 0:
+                logging.info("=== Overall Bit Position Statistics ===")
+                for i, count in enumerate(total_bit_position_flips):
+                    if count > 0:
+                        percentage = (count / total_bits_flipped) * 100 if total_bits_flipped > 0 else 0
+                        logging.info(f"Bit {i:2d}: {count:,} flips ({percentage:.2f}%)")
+                
+                # Show bit position summary for float16 interpretation
+                logging.info("=== Float16 Bit Position Summary ===")
+                mantissa_flips = sum(total_bit_position_flips[0:10])
+                exponent_flips = sum(total_bit_position_flips[10:15])
+                sign_flips = total_bit_position_flips[15]
+                logging.info(f"Mantissa bits (0-9):  {mantissa_flips:,} flips ({mantissa_flips/total_bits_flipped*100:.2f}%)")
+                logging.info(f"Exponent bits (10-14): {exponent_flips:,} flips ({exponent_flips/total_bits_flipped*100:.2f}%)")
+                logging.info(f"Sign bit (15):        {sign_flips:,} flips ({sign_flips/total_bits_flipped*100:.2f}%)")
+        else:
+            logging.info("No DRAM error statistics recorded")
     
     # Save results if requested
     if args.save_results:

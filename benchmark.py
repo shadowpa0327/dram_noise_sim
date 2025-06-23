@@ -85,7 +85,7 @@ def benchmark_scalar_probability():
         def pytorch_version():
             torch.manual_seed(42)  # Reset seed for fair comparison
             x = x_original.clone()
-            y, _ = dram_bitflip(x, p)  # Unpack tuple
+            y, _, _, _ = dram_bitflip(x, p)  # Unpack tuple (4 elements now)
             return y
         
         pytorch_mean, pytorch_std = benchmark_function(
@@ -96,7 +96,8 @@ def benchmark_scalar_probability():
         def triton_version():
             torch.manual_seed(42)  # Reset seed for fair comparison
             x = x_original.clone()
-            return dram_bitflip_triton(x, p)
+            y, _, _ = dram_bitflip_triton(x, p)  # Now returns (tensor, bits_flipped, bit_position_flips)
+            return y
         
         triton_mean, triton_std = benchmark_function(
             triton_version, (), {}, name="Triton"
@@ -149,7 +150,7 @@ def benchmark_vector_probability():
         def pytorch_version():
             torch.manual_seed(42)
             x = x_original.clone()
-            y, _ = dram_bitflip(x, p_vector)  # Unpack tuple
+            y, _, _, _ = dram_bitflip(x, p_vector)  # Unpack tuple (4 elements now)
             return y
         
         pytorch_mean, pytorch_std = benchmark_function(
@@ -160,7 +161,8 @@ def benchmark_vector_probability():
         def triton_version():
             torch.manual_seed(42)
             x = x_original.clone()
-            return dram_bitflip_triton(x, p_vector)
+            y, _, _ = dram_bitflip_triton(x, p_vector)  # Now returns (tensor, bits_flipped, bit_position_flips)
+            return y
         
         triton_mean, triton_std = benchmark_function(
             triton_version, (), {}, name="Triton"
